@@ -1,7 +1,9 @@
 import { ROOT_DIV } from "../Helper/constants.js";
 import { globalState } from "../index.js";
 import { renderHighlight } from "../Render/main.js";
+import { clearHighlight } from "../Render/main.js";
 
+let highlight_state = false;
 
 function whitePawnClick({piece}){
     const current_pos = piece.current_position;
@@ -17,14 +19,15 @@ function whitePawnClick({piece}){
 
         globalState.forEach((row )=> {
             row.forEach((element) => {
-                if(element.id = highlight){
+                if(element.id === highlight){
                     element.highlight = true;
                 }
             });
         });
-
+        if(highlight_state) clearHighlight();
         renderHighlight(highlight);
-       
+        
+        highlight_state = true;
     });
 
     }

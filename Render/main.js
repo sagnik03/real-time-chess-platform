@@ -1,6 +1,7 @@
 // import { blackPawn } from "../Data/pieces.js";
 import * as piece from "../Data/pieces.js";
 import { ROOT_DIV } from "../Helper/constants.js";
+import { globalState } from "../index.js";
 
 
 function initGameRender(data) {
@@ -101,4 +102,14 @@ function renderHighlight(squareId){
     document.getElementById(squareId).appendChild(highlightSpan);
 }
 
-export { initGameRender,renderHighlight };
+function clearHighlight(){
+    globalState.forEach((row )=> {
+            row.forEach((element) => {
+                if(element.id == row){
+                    element.highlight = true;
+                }
+            });
+        });
+}
+
+export { initGameRender,renderHighlight, clearHighlight };
