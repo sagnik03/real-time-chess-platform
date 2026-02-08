@@ -19,7 +19,7 @@ function whitePawnClick({piece}){
 
         globalState.forEach((row )=> {
             row.forEach((element) => {
-                if(element.id === highlight){
+                if(element.id == highlight){
                     element.highlight = true;
                 }
             });
