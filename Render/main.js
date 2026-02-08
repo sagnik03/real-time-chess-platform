@@ -95,4 +95,10 @@ function pieceRender(data) {
     });
 }
 
-export { initGameRender };
+function renderHighlight(squareId){
+    const highlightSpan = document.createElement("span");
+    highlightSpan.classList.add("highlight");
+    document.getElementById(squareId).appendChild(highlightSpan);
+}
+
+export { initGameRender,renderHighlight };
