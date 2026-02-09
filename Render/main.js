@@ -100,16 +100,18 @@ function renderHighlight(squareId){
     const highlightSpan = document.createElement("span");
     highlightSpan.classList.add("highlight");
     document.getElementById(squareId).appendChild(highlightSpan);
+    
 }
 
 function clearHighlight(){
-    globalState.forEach((row )=> {
-            row.forEach((element) => {
-                if(element.id == row){
-                    element.highlight = true;
-                }
-            });
-        });
+    const flatData = globalState.flat();
+    flatData.forEach((el) => {
+        if(el.highlighted){
+            document.getElementById(el.id).innerHTML = "";
+        }
+    });
+
+    
 }
 
 export { initGameRender,renderHighlight, clearHighlight };

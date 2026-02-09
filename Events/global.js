@@ -15,19 +15,21 @@ function whitePawnClick({piece}){
             `${current_pos[0]}${Number(current_pos[1]) + 2}`,            
     ];
 
+    clearHighlight();
+
     highlightSquareId.forEach((highlight) => {
 
         globalState.forEach((row )=> {
             row.forEach((element) => {
                 if(element.id == highlight){
-                    element.highlight = true;
+                    element.highlight(true);
                 }
             });
         });
-        if(highlight_state) clearHighlight();
-        renderHighlight(highlight);
+        // if(highlight_state) clearHighlight();
+        // renderHighlight(highlight);
         
-        highlight_state = true;
+        // highlight_state = true;
     });
 
     }
