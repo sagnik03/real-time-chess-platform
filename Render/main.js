@@ -3,6 +3,18 @@ import * as piece from "../Data/pieces.js";
 import { ROOT_DIV } from "../Helper/constants.js";
 import { globalState } from "../index.js";
 
+function clearPreviousSelfHighlight(piece){
+    if(piece){
+    document.getElementById(piece.current_position).classList.remove("highlightYellow");
+}
+}
+
+function selfHighlight(piece){
+    document.getElementById(piece.current_position).classList.add("highlightYellow");
+}
+
+
+
 
 function initGameRender(data) {
     data.forEach((element) => {
@@ -108,10 +120,11 @@ function clearHighlight(){
     flatData.forEach((el) => {
         if(el.highlighted){
             document.getElementById(el.id).innerHTML = "";
+            el.highlighted = false;
         }
     });
 
     
 }
 
-export { initGameRender,renderHighlight, clearHighlight };
+export { initGameRender,renderHighlight, clearHighlight, selfHighlight,clearPreviousSelfHighlight };
