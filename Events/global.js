@@ -9,12 +9,17 @@ let highlight_state = false;
 
 let selfHighlightState = null;
 
+let moveState = null;
+
+
 function whitePawnClick({piece}){
 
      //highlight clicked element
      clearPreviousSelfHighlight(selfHighlightState);
     selfHighlight(piece);
     selfHighlightState = piece;
+
+    moveState = piece;
 
     const current_pos = piece.current_position;
     const flatArray = globalState.flat();
@@ -56,6 +61,19 @@ function GlobalEvent(){
                 whitePawnClick(square);
             }
             
+        }
+
+        else{
+            const childElementsofClickedEl = Array.from(event.target.childNodes);
+            if(childElementsofClickedEl.length == 1 || event.target.localName == "span"){
+                console.log("clicked on highlighted square");
+                
+            }
+
+            else{
+                clearHighlight();
+            }
+
         }
     });
 }
