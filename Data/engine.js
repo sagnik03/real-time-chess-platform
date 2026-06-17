@@ -196,7 +196,7 @@ function isKingInCheck(board, color) {
     return isSquareAttacked(board, kingPos, opponent);
 }
 
-function getLegalMovesForPiece(board, piece) {
+function getLegalMovesForPiece(board, piece, gameState) {
     const candidates = getMovesForPiece(board, piece);
     const legal = [];
     for (const to of candidates) {
@@ -206,6 +206,51 @@ function getLegalMovesForPiece(board, piece) {
             legal.push(to);
         }
     }
+
+    // castling: requires gameState to inspect move history; if provided, consider castling targets
+    if (gameState && piece.piece_name.endsWith('KING')) {
+        const color = piece.piece_name.startsWith('WHITE') ? 'WHITE' : 'BLACK';
+        const startRank = color === 'WHITE' ? '1' : '8';
+        const kingStart = `e${startRank}`;
+        const kingsideRookPos = `h${startRank}`;
+        const queensideRookPos = `a${startRank}`;
+
+        // only from starting square and king must not have moved
+        const kingHasMoved = gameState.moveHistory.some((m) => m.piece === piece.piece_name);
+        if (piece.current_position === kingStart && !kingHasMoved && !isKingInCheck(board, color)) {
+            // kingside
+            const f = `f${startRank}`;
+            const g = `g${startRank}`;
+            const rookSq = getSquare(board, kingsideRookPos);
+            const rookHasMoved = gameState.moveHistory.some((m) => m.piece === `${color}_ROOK` && m.from === kingsideRookPos);
+            if (rookSq && rookSq.piece && !rookHasMoved) {
+                // squares between e and h must be empty: f and g
+                if (isEmpty(board, f) && isEmpty(board, g)) {
+                    // squares f and g must not be attacked
+                    if (!isSquareAttacked(board, f, color === 'WHITE' ? 'BLACK' : 'WHITE') && !isSquareAttacked(board, g, color === 'WHITE' ? 'BLACK' : 'WHITE')) {
+                        legal.push(g);
+                    }
+                }
+            }
+
+            // queenside
+            const d = `d${startRank}`;
+            const c = `c${startRank}`;
+            const b = `b${startRank}`;
+            const rookQs = getSquare(board, queensideRookPos);
+            const rookQsHasMoved = gameState.moveHistory.some((m) => m.piece === `${color}_ROOK` && m.from === queensideRookPos);
+            if (rookQs && rookQs.piece && !rookQsHasMoved) {
+                // squares between a and e must be empty: b, c, d
+                if (isEmpty(board, b) && isEmpty(board, c) && isEmpty(board, d)) {
+                    // squares d and c must not be attacked
+                    if (!isSquareAttacked(board, d, color === 'WHITE' ? 'BLACK' : 'WHITE') && !isSquareAttacked(board, c, color === 'WHITE' ? 'BLACK' : 'WHITE')) {
+                        legal.push(c);
+                    }
+                }
+            }
+        }
+    }
+
     return legal;
 }
 

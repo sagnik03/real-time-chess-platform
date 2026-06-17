@@ -25,7 +25,7 @@ function handlePawnSelection(piece) {
     moveState = piece;
 
     clearHighlight();
-    const moves = getLegalMovesForPiece(globalState, piece);
+    const moves = getLegalMovesForPiece(globalState, piece, gameState);
     moves.forEach((id) => {
         const sq = globalState.flat().find((s) => s.id === id);
         if (sq) {
