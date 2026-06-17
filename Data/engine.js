@@ -20,7 +20,7 @@ function isEnemy(board, id, color) {
     return (color === "WHITE") ? sq.piece.piece_name.startsWith("BLACK") : sq.piece.piece_name.startsWith("WHITE");
 }
 
-function getPawnMoves(board, piece) {
+function getPawnMoves(board, piece, gameState) {
     // piece.current_position like 'e2'
     const moves = [];
     const file = piece.current_position[0];
@@ -42,6 +42,24 @@ function getPawnMoves(board, piece) {
         const right = `${String.fromCharCode(file.charCodeAt(0) + 1)}${rank + 1}`;
         if (isEnemy(board, left, color)) moves.push(left);
         if (isEnemy(board, right, color)) moves.push(right);
+        // en-passant: can capture pawn that moved two squares last move
+        if (gameState && gameState.lastMove && gameState.lastMove.piece && gameState.lastMove.piece.endsWith('PAWN')) {
+            const last = gameState.lastMove;
+            // last pawn must have landed adjacent on same rank as this pawn
+            if (last.to && /^[a-h][1-8]$/.test(last.to)) {
+                const lastFile = last.to[0];
+                const lastRank = Number(last.to[1]);
+                // last move must be a two-square pawn move
+                if (Math.abs(Number(last.from[1]) - Number(last.to[1])) === 2) {
+                    // if last pawn is on left or right and same rank as this pawn
+                    if (lastRank === rank && (lastFile === String.fromCharCode(file.charCodeAt(0) - 1) || lastFile === String.fromCharCode(file.charCodeAt(0) + 1))) {
+                        // en-passant capture lands on the square behind the pawn
+                        const epCapture = `${lastFile}${rank + 1}`;
+                        if (/^[a-h][1-8]$/.test(epCapture)) moves.push(epCapture);
+                    }
+                }
+            }
+        }
     } else {
         // black
         const one = `${file}${rank - 1}`;
@@ -56,6 +74,20 @@ function getPawnMoves(board, piece) {
         const right = `${String.fromCharCode(file.charCodeAt(0) + 1)}${rank - 1}`;
         if (isEnemy(board, left, color)) moves.push(left);
         if (isEnemy(board, right, color)) moves.push(right);
+        // en-passant for black
+        if (gameState && gameState.lastMove && gameState.lastMove.piece && gameState.lastMove.piece.endsWith('PAWN')) {
+            const last = gameState.lastMove;
+            if (last.to && /^[a-h][1-8]$/.test(last.to)) {
+                const lastFile = last.to[0];
+                const lastRank = Number(last.to[1]);
+                if (Math.abs(Number(last.from[1]) - Number(last.to[1])) === 2) {
+                    if (lastRank === rank && (lastFile === String.fromCharCode(file.charCodeAt(0) - 1) || lastFile === String.fromCharCode(file.charCodeAt(0) + 1))) {
+                        const epCapture = `${lastFile}${rank - 1}`;
+                        if (/^[a-h][1-8]$/.test(epCapture)) moves.push(epCapture);
+                    }
+                }
+            }
+        }
     }
 
     // filter out invalid board coordinates (e.g., file beyond 'a'-'h' or rank out of 1-8)
@@ -138,10 +170,10 @@ function getKingMoves(board, piece) {
     return moves;
 }
 
-function getMovesForPiece(board, piece) {
+function getMovesForPiece(board, piece, gameState) {
     if (!piece) return [];
     const name = piece.piece_name;
-    if (name.endsWith("PAWN")) return getPawnMoves(board, piece);
+    if (name.endsWith("PAWN")) return getPawnMoves(board, piece, gameState);
     if (name.endsWith("ROOK")) return getRookMoves(board, piece);
     if (name.endsWith("BISHOP")) return getBishopMoves(board, piece);
     if (name.endsWith("KNIGHT")) return getKnightMoves(board, piece);
@@ -155,7 +187,7 @@ function cloneBoard(board) {
     return JSON.parse(JSON.stringify(board));
 }
 
-function applyMoveOnBoard(board, fromId, toId) {
+function applyMoveOnBoard(board, fromId, toId, gameState) {
     // mutate board in place; board should be a cloned board for simulation
     const flat = board.flat();
     const from = flat.find((s) => s.id === fromId);
@@ -201,7 +233,7 @@ function getLegalMovesForPiece(board, piece, gameState) {
     const legal = [];
     for (const to of candidates) {
         const cloned = cloneBoard(board);
-        applyMoveOnBoard(cloned, piece.current_position, to);
+        applyMoveOnBoard(cloned, piece.current_position, to, gameState);
         if (!isKingInCheck(cloned, piece.piece_name.startsWith('WHITE') ? 'WHITE' : 'BLACK')) {
             legal.push(to);
         }

@@ -11,6 +11,8 @@ function moveElement(piece, id) {
       delete el.piece;
     }
     if (el.id == id) {
+      // clear any captured piece from the destination square before placing the mover
+      el.piece = null;
       el.piece = piece;
     }
   });
@@ -24,9 +26,11 @@ function moveElement(piece, id) {
   // move the DOM node (image) safely instead of copying innerHTML
   const img = previousPiece.querySelector('img');
   if (img) {
+    currentPiece.innerHTML = "";
     currentPiece.appendChild(img);
   } else {
     // fallback: clear and rely on state-driven render
+    currentPiece.innerHTML = "";
     currentPiece.innerHTML = previousPiece.innerHTML;
   }
   // clear previous square's highlight and content if empty
@@ -55,10 +59,14 @@ function selfHighlight(piece) {
 function initGameRender(data) {
   data.forEach((element) => {
     const rowEl = document.createElement("div");
+    rowEl.setAttribute("role", "row");
 
     element.forEach((square) => {
       const squareDiv = document.createElement("div");
       squareDiv.id = square.id;
+      squareDiv.setAttribute("role", "gridcell");
+      squareDiv.setAttribute("aria-label", `Square ${square.id}`);
+      squareDiv.setAttribute("tabindex", "0");
 
       squareDiv.classList.add(square.color, "square");
 
@@ -137,6 +145,9 @@ function pieceRender(data) {
         const piece = document.createElement("img");
         piece.src = square.piece.img;
         piece.classList.add("piece");
+        piece.alt = square.piece.piece_name.replace(/_/g, " ").toLowerCase();
+        piece.setAttribute("draggable", "false");
+        piece.setAttribute("aria-label", piece.alt);
 
         squareEl.appendChild(piece);
       }
@@ -147,6 +158,7 @@ function pieceRender(data) {
 function renderHighlight(squareId) {
   const highlightSpan = document.createElement("span");
   highlightSpan.classList.add("highlight");
+  highlightSpan.setAttribute("aria-hidden", "true");
   document.getElementById(squareId).appendChild(highlightSpan);
 }
 
