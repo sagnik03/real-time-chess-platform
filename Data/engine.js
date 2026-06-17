@@ -286,4 +286,95 @@ function getLegalMovesForPiece(board, piece, gameState) {
     return legal;
 }
 
-export { getPawnMoves, getSquare, isEmpty, isEnemy, getRookMoves, getBishopMoves, getKnightMoves, getQueenMoves, getKingMoves, getMovesForPiece, getLegalMovesForPiece, isKingInCheck };
+export { getPawnMoves, getSquare, isEmpty, isEnemy, getRookMoves, getBishopMoves, getKnightMoves, getQueenMoves, getKingMoves, getMovesForPiece, getLegalMovesForPiece, isKingInCheck, cloneBoard, applyMoveOnBoard };
+
+// Helper: check if given color has any legal moves
+function hasAnyLegalMoves(board, color, gameState) {
+    const flat = board.flat();
+    for (const s of flat) {
+        if (!s.piece) continue;
+        const pieceColor = s.piece.piece_name.startsWith('WHITE') ? 'WHITE' : 'BLACK';
+        if (pieceColor !== color) continue;
+        const legal = getLegalMovesForPiece(board, s.piece, gameState);
+        if (legal && legal.length > 0) return true;
+    }
+    return false;
+}
+
+// Generate a simple position key for repetition detection: piece placement + side + castling rights + en-passant
+function generatePositionKey(board, gameState) {
+    const ranks = [];
+    // iterate rank 8 -> 1, files a -> h
+    for (let r = 8; r >= 1; r--) {
+        let row = '';
+        for (let f = 97; f <= 104; f++) {
+            const id = `${String.fromCharCode(f)}${r}`;
+            const sq = board.flat().find(s => s.id === id);
+            if (!sq || !sq.piece) row += '.';
+            else row += sq.piece.piece_name.replaceAll('_', '');
+            row += '/';
+        }
+        ranks.push(row);
+    }
+    const placement = ranks.join('|');
+    const side = gameState.currentTurn || 'WHITE';
+
+    // castling rights: infer from moveHistory whether king or rooks moved
+    const mh = gameState.moveHistory || [];
+    const whiteKingMoved = mh.some(m => m.piece === 'WHITE_KING');
+    const blackKingMoved = mh.some(m => m.piece === 'BLACK_KING');
+    const whiteRookA = mh.some(m => m.piece === 'WHITE_ROOK' && m.from === 'a1');
+    const whiteRookH = mh.some(m => m.piece === 'WHITE_ROOK' && m.from === 'h1');
+    const blackRookA = mh.some(m => m.piece === 'BLACK_ROOK' && m.from === 'a8');
+    const blackRookH = mh.some(m => m.piece === 'BLACK_ROOK' && m.from === 'h8');
+    let castling = '';
+    if (!whiteKingMoved) {
+        if (!whiteRookH) castling += 'K';
+        if (!whiteRookA) castling += 'Q';
+    }
+    if (!blackKingMoved) {
+        if (!blackRookH) castling += 'k';
+        if (!blackRookA) castling += 'q';
+    }
+    if (!castling) castling = '-';
+
+    // en-passant target: last move two-square pawn move
+    let ep = '-';
+    const last = gameState.lastMove;
+    if (last && last.piece && last.piece.endsWith('PAWN') && Math.abs(Number(last.from[1]) - Number(last.to[1])) === 2) {
+        // en-passant square is the square behind the pawn
+        const file = last.to[0];
+        const rank = (Number(last.to[1]) + Number(last.from[1])) / 2;
+        ep = `${file}${rank}`;
+    }
+
+    return `${placement} ${side} ${castling} ${ep}`;
+}
+
+// Basic insufficient material detection
+function insufficientMaterial(board) {
+    const pieces = board.flat().filter(s => s.piece).map(s => s.piece.piece_name);
+    // remove kings
+    const others = pieces.filter(p => !p.endsWith('KING'));
+    if (others.length === 0) return true; // king vs king
+    if (others.length === 1) {
+        // single minor piece vs king
+        const p = others[0];
+        if (p.endsWith('KNIGHT') || p.endsWith('BISHOP')) return true;
+    }
+    // only bishops: check if all bishops are on same color square
+    const bishops = board.flat().filter(s => s.piece && (s.piece.piece_name.endsWith('BISHOP')));
+    if (bishops.length > 0 && pieces.length === bishops.length + 2 /* the kings */) {
+        // check color of square for each bishop
+        const colors = bishops.map(s => {
+            const file = s.id.charCodeAt(0) - 96; // a=1
+            const rank = Number(s.id[1]);
+            return (file + rank) % 2 === 0 ? 'dark' : 'light';
+        });
+        const allSame = colors.every(c => c === colors[0]);
+        if (allSame) return true;
+    }
+    return false;
+}
+
+export { hasAnyLegalMoves, generatePositionKey, insufficientMaterial };

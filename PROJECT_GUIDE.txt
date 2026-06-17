@@ -350,6 +350,54 @@ Use this format when a feature is added/updated:
   - Add move numbering / algebraic notation if you want a more chess-like history format.
   - Consider keyboard navigation and move selection for accessibility completeness.
 
+[2026-06-20] Game completion rules + promotion chooser
+- What changed:
+  - Implemented checkmate and stalemate detection using engine legal-move checks and `isKingInCheck`.
+  - Added threefold repetition detection via a simple position key history stored in `gameState.positionHistory`.
+  - Added fifty-move rule enforcement using `gameState.halfmoveClock` (draw when >= 100 half-moves).
+  - Added basic insufficient-material detection for common draw scenarios (king vs king, king vs king+minor, bishops on same color).
+  - Replaced automatic queen promotion with a promotion chooser modal. The chooser lets the player select `Queen`, `Rook`, `Bishop`, or `Knight` when a pawn reaches the last rank.
+  - Updated move history rendering to use SAN (algebraic) notation and include promotion markers.
+- Files touched:
+  - Data/state.js (added `positionHistory`, `gameOver`, `result`, `awaitingPromotion`)
+  - Data/engine.js (added `hasAnyLegalMoves`, `generatePositionKey`, `insufficientMaterial` exports)
+  - Data/notation.js (existing SAN generator used by move history)
+  - Events/global.js (promotion UI, move clocks, repetition/50-move checks, game-over handling, history rendering)
+- Why it was changed:
+  - To reach Phase 1 game completion goals: detect game end states, properly handle promotions with player choice, and implement common draw rules.
+- Behavior impact:
+  - When the side to move has no legal moves: the game now detects checkmate (if in check) or stalemate and ends the game with an alert and internal `gameState.gameOver` flag that prevents further moves.
+  - Threefold repetition, fifty-move rule, and basic insufficient-material conditions produce an automatic draw and end the game.
+  - On pawn promotion, a modal appears allowing the user to choose the promotion piece; the board and move history are updated accordingly.
+- Follow-up tasks:
+  - Improve the position-key to include full castling rights and move counters in a FEN-compatible way for stricter repetition detection.
+  - Add a non-blocking in-UI game-over banner instead of `alert()` for better UX and to allow review of the final position.
+  - Add unit tests for the new termination rules and promotion flows.
+  - Extend insufficient-material to fully match FIDE rules (e.g., opposite-colored bishops draw detection with precise square colors).
+
+[2026-06-20] Game state controls and rollback foundation
+- What changed:
+  - Added centralized game-state fields for `status`, `statusMessage`, `winner`, and `undoStack` in `Data/state.js`.
+  - Added reset/snapshot helpers in `Data/state.js` for restart and undo flows.
+  - Added centralized game-status handling in `Events/global.js` so the UI can distinguish `ACTIVE`, `CHECK`, `CHECKMATE`, `STALEMATE`, and `DRAW` states.
+  - Added king check highlighting in the board UI so a king is visually marked when it is in check.
+  - Added restart and undo controls to `index.js` and styling in `style/index.css`.
+- Files touched:
+  - Data/state.js (modified)
+  - Events/global.js (modified)
+  - index.js (modified)
+  - style/index.css (modified)
+- Why it was changed:
+  - To support Phase 2 requirements: centralized game-over state, visible check status, board restart, and move rollback.
+- Behavior impact:
+  - The app now has visible controls for restarting and undoing moves.
+  - The king is highlighted when it is in check.
+  - Game state includes explicit status text and a winner field for terminal states.
+- Follow-up tasks:
+  - Finish verifying undo behavior for all special moves (captures, castling, en passant, promotion).
+  - Replace the alert-based terminal flow with a persistent in-app banner or modal.
+  - Add tests for restart and rollback once a test harness exists.
+
 
 
 
