@@ -1,17 +1,17 @@
 // import { blackPawn } from "../Data/pieces.js";
 import * as piece from "../Data/pieces.js";
 import { ROOT_DIV } from "../Helper/constants.js";
-import { globalState } from "../index.js";
+import { globalState } from "../Data/state.js";
 
 function moveElement(piece, id) {
-    
-    const flatData = globalState.flat();
-    flatData.forEach((el) => {
+
+  const flatData = globalState.flat();
+  flatData.forEach((el) => {
     if (el.id == piece.current_position) {
       delete el.piece;
     }
-    if(el.id == id){
-        el.piece = piece;
+    if (el.id == id) {
+      el.piece = piece;
     }
   });
 
@@ -21,11 +21,18 @@ function moveElement(piece, id) {
   previousPiece.classList.remove("highlightYellow");
   const currentPiece = document.getElementById(id);
 
+  // move the DOM node (image) safely instead of copying innerHTML
+  const img = previousPiece.querySelector('img');
+  if (img) {
+    currentPiece.appendChild(img);
+  } else {
+    // fallback: clear and rely on state-driven render
+    currentPiece.innerHTML = previousPiece.innerHTML;
+  }
+  // clear previous square's highlight and content if empty
+  if (!previousPiece.querySelector('img')) previousPiece.innerHTML = "";
 
-  currentPiece.innerHTML = previousPiece.innerHTML;
-  previousPiece.innerHTML = "";
 
-  
 
   piece.current_position = id;
 
@@ -147,7 +154,9 @@ function clearHighlight() {
   const flatData = globalState.flat();
   flatData.forEach((el) => {
     if (el.highlighted) {
-      document.getElementById(el.id).innerHTML = "";
+      const squareEl = document.getElementById(el.id);
+      const highlightNode = squareEl.querySelector('.highlight');
+      if (highlightNode) squareEl.removeChild(highlightNode);
       el.highlighted = false;
     }
   });

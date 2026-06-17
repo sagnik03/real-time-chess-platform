@@ -1,27 +1,24 @@
-import { renderHighlight } from "../Render/main.js";
-
-function Greet(){
+function Greet() {
     alert("hello");
 }
 
-function Square(color, id, piece){
-    const highlight = function(){
-        renderHighlight(this.id);
+function Square(color, id, piece) {
+    const highlight = function () {
+        // mark the square as highlighted; rendering of highlight is
+        // the responsibility of the render layer to avoid cross-layer coupling
         this.highlighted = true;
-        
     };
-    
 
     return { color, id, piece, highlight };
 }
 
-function SquareRow(rowId){
+function SquareRow(rowId) {
 
     const squareRow = [];
-    const abcd = ['a','b','c','d','e','f','g','h'];
+    const abcd = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
     if (rowId % 2 === 0) {
-       
+
         abcd.forEach((element, index) => {
             if (index % 2 == 0) {
                 squareRow.push(Square("white", element + rowId, null));
@@ -31,7 +28,7 @@ function SquareRow(rowId){
         });
 
     } else {
-        
+
         abcd.forEach((element, index) => {
             if (index % 2 === 0) {
                 squareRow.push(Square("black", element + rowId, null));
