@@ -1,4 +1,5 @@
 import { getLegalMovesForPiece, cloneBoard, applyMoveOnBoard, isKingInCheck, getSquare } from './engine.js';
+import * as pieces from './pieces.js';
 
 function pieceLetter(pieceName) {
     if (!pieceName) return '';
@@ -69,6 +70,31 @@ function simulateMoveAndCheck(move, boardBefore, gameStateBefore) {
             applyMoveOnBoard(cloned, rookFrom, rookTo, gameStateBefore);
         }
     }
+    // handle promotion in simulation
+    if (move.piece && move.piece.endsWith('PAWN')) {
+        const promoRank = move.to[1];
+        const isWhite = move.piece.startsWith('WHITE');
+        if ((isWhite && promoRank === '8') || (!isWhite && promoRank === '1')) {
+            const targetSq = cloned.flat().find(s => s.id === move.to);
+            if (targetSq && targetSq.piece) {
+                const color = isWhite ? 'WHITE' : 'BLACK';
+                const promoType = move.promotedTo ? move.promotedTo.split('_')[1] : 'QUEEN';
+                let newPiece = null;
+                if (color === 'WHITE') {
+                    if (promoType === 'QUEEN') newPiece = pieces.whiteQueen(move.to);
+                    if (promoType === 'ROOK') newPiece = pieces.whiteRook(move.to);
+                    if (promoType === 'BISHOP') newPiece = pieces.whiteBishop(move.to);
+                    if (promoType === 'KNIGHT') newPiece = pieces.whiteKnight(move.to);
+                } else {
+                    if (promoType === 'QUEEN') newPiece = pieces.blackQueen(move.to);
+                    if (promoType === 'ROOK') newPiece = pieces.blackRook(move.to);
+                    if (promoType === 'BISHOP') newPiece = pieces.blackBishop(move.to);
+                    if (promoType === 'KNIGHT') newPiece = pieces.blackKnight(move.to);
+                }
+                if (newPiece) targetSq.piece = newPiece;
+            }
+        }
+    }
     const opponent = colorOf(move.piece) === 'WHITE' ? 'BLACK' : 'WHITE';
     const check = isKingInCheck(cloned, opponent);
     // detect if opponent has any legal moves -> mate
@@ -109,8 +135,8 @@ function toSAN(move, boardBefore, gameStateBefore) {
         // promotion
         const promoRank = move.to[1];
         if ((move.piece && move.piece.startsWith('WHITE') && promoRank === '8') || (move.piece && move.piece.startsWith('BLACK') && promoRank === '1')) {
-            // default to queen
-            san += `=Q`;
+            const letter = move.promotedTo ? pieceLetter(move.promotedTo) : 'Q';
+            san += `=${letter}`;
         }
     } else {
         const dis = disambiguation(move, boardBefore, gameStateBefore);

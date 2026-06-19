@@ -23,20 +23,27 @@ function moveElement(piece, id) {
   previousPiece.classList.remove("highlightYellow");
   const currentPiece = document.getElementById(id);
 
+  // Helper to clear a square's dynamic content without affecting coordinate labels
+  const clearSquareDOM = (squareEl) => {
+    if (!squareEl) return;
+    const oldImg = squareEl.querySelector('img');
+    if (oldImg) oldImg.remove();
+    const highlight = squareEl.querySelector('.highlight');
+    if (highlight) highlight.remove();
+  };
+
   // move the DOM node (image) safely instead of copying innerHTML
   const img = previousPiece.querySelector('img');
   if (img) {
-    currentPiece.innerHTML = "";
+    clearSquareDOM(currentPiece);
     currentPiece.appendChild(img);
   } else {
-    // fallback: clear and rely on state-driven render
-    currentPiece.innerHTML = "";
-    currentPiece.innerHTML = previousPiece.innerHTML;
+    clearSquareDOM(currentPiece);
   }
   // clear previous square's highlight and content if empty
-  if (!previousPiece.querySelector('img')) previousPiece.innerHTML = "";
-
-
+  if (!previousPiece.querySelector('img')) {
+    clearSquareDOM(previousPiece);
+  }
 
   piece.current_position = id;
 
@@ -69,6 +76,20 @@ function initGameRender(data) {
       squareDiv.setAttribute("tabindex", "0");
 
       squareDiv.classList.add(square.color, "square");
+
+      // Add coordinate labels
+      if (square.id[0] === 'a') {
+        const rankLabel = document.createElement("span");
+        rankLabel.className = "coordinate-label rank-label";
+        rankLabel.textContent = square.id[1];
+        squareDiv.appendChild(rankLabel);
+      }
+      if (square.id[1] === '1') {
+        const fileLabel = document.createElement("span");
+        fileLabel.className = "coordinate-label file-label";
+        fileLabel.textContent = square.id[0];
+        squareDiv.appendChild(fileLabel);
+      }
 
       //black pieces
 

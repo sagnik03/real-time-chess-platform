@@ -195,6 +195,16 @@ function applyMoveOnBoard(board, fromId, toId, gameState) {
     if (!from) return board;
     const movingPiece = from.piece;
     if (!movingPiece) return board;
+
+    // Handle en-passant capture in simulation: remove the captured pawn
+    if (movingPiece.piece_name.endsWith('PAWN') && fromId[0] !== toId[0] && !to.piece) {
+        const capturedPawnId = `${toId[0]}${fromId[1]}`;
+        const capturedSq = flat.find((s) => s.id === capturedPawnId);
+        if (capturedSq) {
+            capturedSq.piece = null;
+        }
+    }
+
     // move piece object; ensure current_position updated
     movingPiece.current_position = toId;
     to.piece = movingPiece;
@@ -209,13 +219,30 @@ function findKingPosition(board, color) {
 }
 
 function isSquareAttacked(board, squareId, byColor) {
-    // any piece of byColor can move to squareId according to basic moves
+    // any piece of byColor can move to/attack squareId
     const flat = board.flat();
     for (const s of flat) {
         if (!s.piece) continue;
         const pieceColor = s.piece.piece_name.startsWith('WHITE') ? 'WHITE' : 'BLACK';
         if (pieceColor !== byColor) continue;
-        const moves = getMovesForPiece(board, s.piece);
+
+        let moves;
+        if (s.piece.piece_name.endsWith("PAWN")) {
+            // Pawns only attack diagonally, regardless of board occupancy
+            const file = s.piece.current_position[0];
+            const rank = Number(s.piece.current_position[1]);
+            const dir = pieceColor === "WHITE" ? 1 : -1;
+            const leftFile = String.fromCharCode(file.charCodeAt(0) - 1);
+            const rightFile = String.fromCharCode(file.charCodeAt(0) + 1);
+            const leftSquare = `${leftFile}${rank + dir}`;
+            const rightSquare = `${rightFile}${rank + dir}`;
+            moves = [];
+            if (/^[a-h][1-8]$/.test(leftSquare)) moves.push(leftSquare);
+            if (/^[a-h][1-8]$/.test(rightSquare)) moves.push(rightSquare);
+        } else {
+            moves = getMovesForPiece(board, s.piece);
+        }
+
         if (moves.includes(squareId)) return true;
     }
     return false;
@@ -229,7 +256,7 @@ function isKingInCheck(board, color) {
 }
 
 function getLegalMovesForPiece(board, piece, gameState) {
-    const candidates = getMovesForPiece(board, piece);
+    const candidates = getMovesForPiece(board, piece, gameState);
     const legal = [];
     for (const to of candidates) {
         const cloned = cloneBoard(board);
@@ -255,7 +282,7 @@ function getLegalMovesForPiece(board, piece, gameState) {
             const g = `g${startRank}`;
             const rookSq = getSquare(board, kingsideRookPos);
             const rookHasMoved = gameState.moveHistory.some((m) => m.piece === `${color}_ROOK` && m.from === kingsideRookPos);
-            if (rookSq && rookSq.piece && !rookHasMoved) {
+            if (rookSq && rookSq.piece && rookSq.piece.piece_name === `${color}_ROOK` && !rookHasMoved) {
                 // squares between e and h must be empty: f and g
                 if (isEmpty(board, f) && isEmpty(board, g)) {
                     // squares f and g must not be attacked
@@ -271,7 +298,7 @@ function getLegalMovesForPiece(board, piece, gameState) {
             const b = `b${startRank}`;
             const rookQs = getSquare(board, queensideRookPos);
             const rookQsHasMoved = gameState.moveHistory.some((m) => m.piece === `${color}_ROOK` && m.from === queensideRookPos);
-            if (rookQs && rookQs.piece && !rookQsHasMoved) {
+            if (rookQs && rookQs.piece && rookQs.piece.piece_name === `${color}_ROOK` && !rookQsHasMoved) {
                 // squares between a and e must be empty: b, c, d
                 if (isEmpty(board, b) && isEmpty(board, c) && isEmpty(board, d)) {
                     // squares d and c must not be attacked

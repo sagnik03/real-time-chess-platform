@@ -16,6 +16,8 @@ const initialGameState = {
     statusMessage: "White to move",
     winner: null,
     undoStack: [],
+    reviewIndex: null,
+    mode: "ANALYSIS",
 };
 
 // additional meta state for game logic
@@ -49,6 +51,7 @@ function cloneGameStateForSnapshot() {
         status: gameState.status,
         statusMessage: gameState.statusMessage,
         winner: gameState.winner,
+        reviewIndex: gameState.reviewIndex,
     }));
 }
 
@@ -71,9 +74,10 @@ function restoreBoardSnapshot(boardSnapshot) {
 }
 
 function restoreGameStateSnapshot(snapshot) {
+    const savedStack = gameState.undoStack;
     resetGameState();
     Object.assign(gameState, JSON.parse(JSON.stringify(snapshot)));
-    gameState.undoStack = [];
+    gameState.undoStack = savedStack;
     return gameState;
 }
 

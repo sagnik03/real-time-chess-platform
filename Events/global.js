@@ -6,9 +6,144 @@ import { toSAN } from "../Data/notation.js";
 import { hasAnyLegalMoves, generatePositionKey, insufficientMaterial } from "../Data/engine.js";
 import { initGameRender } from "../Render/main.js";
 import * as pieces from "../Data/pieces.js";
+import { parseFEN, toFEN } from "../Helper/fen.js";
 
 let selfHighlightState = null;
 let moveState = null;
+let clockIntervalId = null;
+
+export function clearIntervals() {
+    if (clockIntervalId) {
+        clearInterval(clockIntervalId);
+        clockIntervalId = null;
+    }
+}
+
+export function startClock() {
+    clearIntervals();
+    if (gameState.mode !== "LOCAL" || gameState.gameOver) return;
+    clockIntervalId = setInterval(() => {
+        const activeTurn = gameState.currentTurn;
+        if (gameState.clocks && gameState.clocks[activeTurn] !== undefined) {
+            gameState.clocks[activeTurn]--;
+            updateClockUI();
+            if (gameState.clocks[activeTurn] <= 0) {
+                clearIntervals();
+                const winner = activeTurn === "WHITE" ? "BLACK" : "WHITE";
+                const winnerText = winner === "WHITE" ? "White" : "Black";
+                setStatus("TIMEOUT", `${winnerText} wins on time`, winner);
+            }
+        }
+    }, 1000);
+}
+
+export function updateClockUI() {
+    const whiteClockVal = document.getElementById("whiteClock");
+    const blackClockVal = document.getElementById("blackClock");
+    if (whiteClockVal && gameState.clocks) {
+        whiteClockVal.textContent = formatTime(gameState.clocks.WHITE);
+    }
+    if (blackClockVal && gameState.clocks) {
+        blackClockVal.textContent = formatTime(gameState.clocks.BLACK);
+    }
+    
+    const whiteCard = document.getElementById("whiteClockCard");
+    const blackCard = document.getElementById("blackClockCard");
+    if (gameState.currentTurn === "WHITE") {
+        whiteCard?.classList.add("active-clock");
+        blackCard?.classList.remove("active-clock");
+    } else {
+        blackCard?.classList.add("active-clock");
+        whiteCard?.classList.remove("active-clock");
+    }
+}
+
+function formatTime(seconds) {
+    if (seconds < 0) seconds = 0;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+export function afterMoveCompletion() {
+    if (gameState.mode === "ANALYSIS") {
+        const fenInput = document.getElementById("fenInput");
+        if (fenInput) {
+            fenInput.value = toFEN(globalState, gameState);
+        }
+    }
+    
+    if (!gameState.gameOver) {
+        startClock();
+        if (gameState.mode === "LOCAL") {
+            flipBoard();
+        }
+    } else {
+        clearIntervals();
+    }
+}
+
+export function loadFEN(fenStr) {
+    try {
+        const { board, currentTurn, halfmoveClock, fullmoveNumber, enPassant } = parseFEN(fenStr);
+        gameState.undoStack = [];
+        gameState.reviewIndex = null;
+        gameState.awaitingPromotion = null;
+        
+        restoreBoardSnapshot(board);
+        
+        gameState.currentTurn = currentTurn;
+        gameState.halfmoveClock = halfmoveClock;
+        gameState.fullmoveNumber = fullmoveNumber;
+        gameState.moveHistory = [];
+        gameState.lastMove = null;
+        if (enPassant) {
+            const targetRank = parseInt(enPassant[1], 10);
+            const file = enPassant[0];
+            const enemyRank = targetRank === 3 ? 4 : 5;
+            const startRank = targetRank === 3 ? 2 : 7;
+            gameState.lastMove = {
+                piece: targetRank === 3 ? 'WHITE_PAWN' : 'BLACK_PAWN',
+                from: `${file}${startRank}`,
+                to: `${file}${enemyRank}`
+            };
+        }
+        
+        const key = generatePositionKey(globalState, gameState);
+        gameState.positionHistory = [key];
+        
+        setStatus("ACTIVE", `${currentTurn === "WHITE" ? "White" : "Black"} to move`, null);
+        refreshBoardUI();
+        clearKingCheckHighlight();
+        updateKingCheckHighlight();
+        renderMoveHistory();
+        updateNavigationButtons();
+        
+        const newFen = toFEN(globalState, gameState);
+        const fenInput = document.getElementById("fenInput");
+        if (fenInput) fenInput.value = newFen;
+    } catch (e) {
+        alert("Invalid FEN string: " + e.message);
+    }
+}
+
+export function copyFENToClipboard() {
+    const fenInput = document.getElementById("fenInput");
+    if (!fenInput) return;
+    fenInput.select();
+    fenInput.setSelectionRange(0, 99999);
+    try {
+        document.execCommand("copy");
+        const btn = document.getElementById("btnCopyFEN");
+        if (btn) {
+            const originalText = btn.textContent;
+            btn.textContent = "Copied!";
+            setTimeout(() => { btn.textContent = originalText; }, 1500);
+        }
+    } catch (err) {
+        console.error("Copy FEN failed", err);
+    }
+}
 
 function getKingSquare(color) {
     return globalState.flat().find((square) => square.piece && square.piece.piece_name === `${color}_KING`);
@@ -39,7 +174,12 @@ function setStatus(status, message, winner = null) {
     gameState.status = status;
     gameState.statusMessage = message;
     gameState.winner = winner;
-    gameState.gameOver = status !== "ACTIVE";
+    gameState.gameOver = status !== "ACTIVE" && status !== "CHECK";
+    const bannerEl = document.getElementById("gameBanner");
+    if (bannerEl) {
+        bannerEl.dataset.status = status.toLowerCase();
+        bannerEl.textContent = message;
+    }
     const statusMessageEl = document.getElementById("statusMessage");
     if (statusMessageEl) statusMessageEl.textContent = message;
     const gameStateEl = document.getElementById("gameStateIndicator");
@@ -55,12 +195,20 @@ function clearSelection() {
     moveState = null;
 }
 
-function refreshBoardUI() {
-    const allSquares = globalState.flat();
+function clearSquareDOM(squareEl) {
+    if (!squareEl) return;
+    const img = squareEl.querySelector('img');
+    if (img) img.remove();
+    const highlight = squareEl.querySelector('.highlight');
+    if (highlight) highlight.remove();
+}
+
+function refreshBoardUIFromBoard(board) {
+    const allSquares = board.flat();
     allSquares.forEach((square) => {
         const squareEl = document.getElementById(square.id);
         if (!squareEl) return;
-        squareEl.innerHTML = "";
+        clearSquareDOM(squareEl);
         if (square.piece) {
             const pieceImg = document.createElement("img");
             pieceImg.src = square.piece.img;
@@ -71,6 +219,10 @@ function refreshBoardUI() {
             squareEl.appendChild(pieceImg);
         }
     });
+}
+
+function refreshBoardUI() {
+    refreshBoardUIFromBoard(globalState);
     updateKingCheckHighlight();
 }
 
@@ -220,6 +372,7 @@ function handlePieceSelection(piece) {
 
 function handleMoveTo(id) {
     if (!moveState) return;
+    const isPawnMove = moveState.piece_name.endsWith('PAWN');
     // ensure target is a highlighted legal move
     const targetSq = globalState.flat().find((s) => s.id === id);
     if (!targetSq || !targetSq.highlighted) return;
@@ -252,9 +405,11 @@ function handleMoveTo(id) {
             const rookTo = `f${cfg.rank}`;
             const rookSq = globalState.flat().find((s) => s.id === rookFrom);
             if (rookSq && rookSq.piece) {
-                moveElement(rookSq.piece, rookTo);
+                const rookPiece = rookSq.piece;
+                const rookPieceName = rookPiece.piece_name;
+                moveElement(rookPiece, rookTo);
                 // record rook move as part of castling (will be ignored in SAN rendering)
-                gameState.moveHistory.push({ piece: rookSq.piece.piece_name, from: rookFrom, to: rookTo, partOf: 'castling' });
+                gameState.moveHistory.push({ piece: rookPieceName, from: rookFrom, to: rookTo, partOf: 'castling' });
             }
             // record king move (mark as castling)
             gameState.moveHistory.push({ piece: moveState.piece_name, from, to: id, castling: 'kingside' });
@@ -268,8 +423,10 @@ function handleMoveTo(id) {
             const rookTo = `d${cfg.rank}`;
             const rookSq = globalState.flat().find((s) => s.id === rookFrom);
             if (rookSq && rookSq.piece) {
-                moveElement(rookSq.piece, rookTo);
-                gameState.moveHistory.push({ piece: rookSq.piece.piece_name, from: rookFrom, to: rookTo, partOf: 'castling' });
+                const rookPiece = rookSq.piece;
+                const rookPieceName = rookPiece.piece_name;
+                moveElement(rookPiece, rookTo);
+                gameState.moveHistory.push({ piece: rookPieceName, from: rookFrom, to: rookTo, partOf: 'castling' });
             }
             gameState.moveHistory.push({ piece: moveState.piece_name, from, to: id, castling: 'queenside' });
             gameState.lastMove = { piece: moveState.piece_name, from, to: id, castling: 'queenside' };
@@ -334,8 +491,15 @@ function handleMoveTo(id) {
         const rank = landedSquare.id[1];
         const reachedLast = (isWhite && rank === '8') || (!isWhite && rank === '1');
         if (reachedLast) {
+            clearSelection();
             // set awaitingPromotion and render chooser
-            gameState.awaitingPromotion = { squareId: landedSquare.id, color: isWhite ? 'WHITE' : 'BLACK', historyRef: historyEntry };
+            gameState.awaitingPromotion = {
+                squareId: landedSquare.id,
+                color: isWhite ? 'WHITE' : 'BLACK',
+                historyRef: historyEntry,
+                boardBefore,
+                gameStateBefore
+            };
             showPromotionModal(landedSquare.id, isWhite ? 'WHITE' : 'BLACK');
             promotionTriggered = true;
         }
@@ -360,7 +524,6 @@ function handleMoveTo(id) {
     }
 
     // update halfmove clock and fullmove number
-    const isPawnMove = moveState.piece_name.endsWith('PAWN');
     const isCapture = !!(historyEntry.captured || historyEntry.enPassant);
     if (isPawnMove || isCapture) gameState.halfmoveClock = 0; else gameState.halfmoveClock = (gameState.halfmoveClock || 0) + 1;
     const prevTurn = gameState.currentTurn;
@@ -386,9 +549,11 @@ function handleMoveTo(id) {
     if (promotionTriggered) return;
 
     updateTerminationStatus();
+    afterMoveCompletion();
 
     // cleanup
     clearSelection();
+    updateNavigationButtons();
 }
 
 // Promotion modal UI
@@ -457,19 +622,36 @@ function applyPromotion(squareId, color, pieceShort) {
     // update move history last entry (the one awaiting promotion)
     const awaiting = gameState.awaitingPromotion;
     if (awaiting && awaiting.historyRef) {
-        // find last matching move
-        for (let i = gameState.moveHistory.length - 1; i >= 0; i--) {
-            const m = gameState.moveHistory[i];
-            if (m.from === awaiting.historyRef.from && m.to === awaiting.historyRef.to && m.piece === awaiting.historyRef.piece) {
-                gameState.moveHistory[i].promotedTo = `${color}_${pieceShort}`;
-                // adjust SAN if present by replacing =Q with =<letter>
-                if (gameState.moveHistory[i].san) {
-                    const letter = pieceShort[0];
-                    gameState.moveHistory[i].san = gameState.moveHistory[i].san.replace('=Q', `=${letter}`);
+        const historyEntry = awaiting.historyRef;
+        historyEntry.promotedTo = `${color}_${pieceShort}`;
+        try {
+            const san = toSAN(historyEntry, awaiting.boardBefore, awaiting.gameStateBefore);
+            historyEntry.san = san;
+            // sync history entry san in moveHistory
+            for (let i = gameState.moveHistory.length - 1; i >= 0; i--) {
+                const m = gameState.moveHistory[i];
+                if (m.partOf === 'castling') continue;
+                if (m.from === historyEntry.from && m.to === historyEntry.to) {
+                    gameState.moveHistory[i].promotedTo = `${color}_${pieceShort}`;
+                    gameState.moveHistory[i].san = san;
+                    break;
                 }
-                break;
             }
+        } catch (e) {
+            console.error("SAN generation failed on promotion", e);
         }
+    }
+
+    // update position key with the new promoted piece
+    try {
+        const key = generatePositionKey(globalState, gameState);
+        if (gameState.positionHistory && gameState.positionHistory.length > 0) {
+            gameState.positionHistory[gameState.positionHistory.length - 1] = key;
+        } else {
+            gameState.positionHistory = [key];
+        }
+    } catch (e) {
+        console.error("poskey regeneration failed on promotion", e);
     }
 
     gameState.awaitingPromotion = null;
@@ -477,9 +659,19 @@ function applyPromotion(squareId, color, pieceShort) {
     renderMoveHistory();
     updateKingCheckHighlight();
     updateTerminationStatus();
+    afterMoveCompletion();
+    updateNavigationButtons();
 }
 
 function restartGame() {
+    clearIntervals();
+    const modal = document.getElementById("promotionModal");
+    if (modal) modal.remove();
+    
+    const prevMode = gameState.mode;
+    const timeControl = gameState.timeControl;
+    const onBackToMenu = gameState.onBackToMenu;
+
     resetGlobalState();
     resetGameState();
     const boardRoot = document.getElementById("root");
@@ -487,8 +679,27 @@ function restartGame() {
         boardRoot.innerHTML = "";
         initGameRender(globalState);
     }
+    try {
+        const key = generatePositionKey(globalState, gameState);
+        gameState.positionHistory = [key];
+    } catch (e) {
+        console.error("poskey init failed on restart", e);
+    }
     const historyList = document.getElementById("moveHistoryList");
     if (historyList) historyList.innerHTML = "";
+    
+    gameState.mode = prevMode;
+    gameState.timeControl = timeControl;
+    gameState.onBackToMenu = onBackToMenu;
+    
+    if (prevMode === "LOCAL" && timeControl) {
+        gameState.clocks = { WHITE: timeControl, BLACK: timeControl };
+        updateClockUI();
+        startClock();
+    } else {
+        clearIntervals();
+    }
+
     const turnIndicator = document.getElementById("turnIndicator");
     if (turnIndicator) turnIndicator.textContent = "White to move";
     const statusValue = document.getElementById("gameStateIndicator");
@@ -497,16 +708,31 @@ function restartGame() {
     if (statusMessage) statusMessage.textContent = "White to move";
     const winnerIndicator = document.getElementById("winnerIndicator");
     if (winnerIndicator) winnerIndicator.textContent = "-";
+    const bannerEl = document.getElementById("gameBanner");
+    if (bannerEl) {
+        bannerEl.dataset.status = "active";
+        bannerEl.textContent = "White to move";
+    }
     moveState = null;
     selfHighlightState = null;
     refreshBoardUI();
     clearKingCheckHighlight();
     setStatus("ACTIVE", "White to move", null);
     syncTurnIndicator();
+    updateNavigationButtons();
+    
+    if (gameState.mode === "ANALYSIS") {
+        const fenInput = document.getElementById("fenInput");
+        if (fenInput) fenInput.value = toFEN(globalState, gameState);
+    }
 }
 
 function undoMove() {
+    if (gameState.mode !== "ANALYSIS") return;
     if (!gameState.undoStack || gameState.undoStack.length === 0) return;
+    const modal = document.getElementById("promotionModal");
+    if (modal) modal.remove();
+
     const snapshot = gameState.undoStack.pop();
     restoreBoardSnapshot(snapshot.board);
     restoreGameStateSnapshot(snapshot.gameState);
@@ -516,6 +742,11 @@ function undoMove() {
     updateKingCheckHighlight();
     syncTurnIndicator();
     setStatus(gameState.status || "ACTIVE", gameState.statusMessage || (gameState.currentTurn === "WHITE" ? "White to move" : "Black to move"), gameState.winner || null);
+    gameState.reviewIndex = null;
+    updateNavigationButtons();
+    
+    const fenInput = document.getElementById("fenInput");
+    if (fenInput) fenInput.value = toFEN(globalState, gameState);
 }
 
 function renderMoveHistory() {
@@ -524,35 +755,320 @@ function renderMoveHistory() {
     historyList.innerHTML = '';
     // filter out partOf castling entries (rook moves part of castling)
     const moves = gameState.moveHistory.filter(m => !m.partOf);
+    
+    // Determine which move index to highlight
+    let highlightIdx = -1;
+    if (gameState.reviewIndex !== null) {
+        highlightIdx = gameState.reviewIndex - 1;
+    } else {
+        highlightIdx = moves.length - 1;
+    }
+
     for (let i = 0; i < moves.length; i += 2) {
         const white = moves[i];
         const black = moves[i + 1];
         const moveNumber = Math.floor(i / 2) + 1;
-        const wsan = white && white.san ? white.san : (white ? (white.piece + ' ' + white.from + '→' + white.to) : '');
-        const bsan = black && black.san ? black.san : (black ? (black.piece + ' ' + black.from + '→' + black.to) : '');
-        const item = document.createElement('li');
-        item.textContent = `${moveNumber}. ${wsan}${bsan ? ' ' + bsan : ''}`;
-        historyList.appendChild(item);
+        
+        // Move number column
+        const numSpan = document.createElement('span');
+        numSpan.className = 'history-number';
+        numSpan.textContent = `${moveNumber}.`;
+        historyList.appendChild(numSpan);
+        
+        // White move column
+        const wsan = white && white.san ? white.san : (white ? (white.piece.split('_')[1][0] + ' ' + white.from + '→' + white.to) : '');
+        const whiteSpan = document.createElement('span');
+        whiteSpan.className = 'history-move';
+        whiteSpan.textContent = wsan;
+        if (i === highlightIdx) {
+            whiteSpan.classList.add('active-move');
+        }
+        historyList.appendChild(whiteSpan);
+        
+        // Black move column
+        if (black) {
+            const bsan = black && black.san ? black.san : (black.piece.split('_')[1][0] + ' ' + black.from + '→' + black.to);
+            const blackSpan = document.createElement('span');
+            blackSpan.className = 'history-move';
+            blackSpan.textContent = bsan;
+            if (i + 1 === highlightIdx) {
+                blackSpan.classList.add('active-move');
+            }
+            historyList.appendChild(blackSpan);
+        } else {
+            // Placeholder empty span to keep grid structure
+            const emptySpan = document.createElement('span');
+            emptySpan.className = 'history-move-empty';
+            historyList.appendChild(emptySpan);
+        }
     }
-    historyList.scrollTop = historyList.scrollHeight;
+    
+    // Auto scroll to active move
+    const activeEl = historyList.querySelector('.active-move');
+    if (activeEl && typeof activeEl.scrollIntoView === 'function') {
+        activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } else {
+        historyList.scrollTop = historyList.scrollHeight;
+    }
+}
+
+function flipBoard() {
+    const root = document.getElementById("root");
+    if (root) {
+        root.classList.toggle("flipped");
+    }
+}
+
+function generatePGN() {
+    const event = '[Event "Local Game"]';
+    const site = '[Site "Browser Chess"]';
+    
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const date = `[Date "${year}.${month}.${day}"]`;
+    
+    let resultStr = '*';
+    if (gameState.gameOver) {
+        if (gameState.winner === 'WHITE') {
+            resultStr = '1-0';
+        } else if (gameState.winner === 'BLACK') {
+            resultStr = '0-1';
+        } else {
+            resultStr = '1/2-1/2';
+        }
+    }
+    const result = `[Result "${resultStr}"]`;
+    
+    const moves = gameState.moveHistory.filter(m => !m.partOf);
+    const pgnMoves = [];
+    for (let i = 0; i < moves.length; i += 2) {
+        const white = moves[i];
+        const black = moves[i + 1];
+        const moveNumber = Math.floor(i / 2) + 1;
+        let entry = `${moveNumber}. ${white.san}`;
+        if (black) {
+            entry += ` ${black.san}`;
+        }
+        pgnMoves.push(entry);
+    }
+    
+    const movesText = pgnMoves.join(' ') + (pgnMoves.length > 0 ? ' ' : '') + resultStr;
+    
+    return `${event}\n${site}\n${date}\n${result}\n\n${movesText}\n`;
+}
+
+function downloadPGN() {
+    const pgn = generatePGN();
+    if (typeof Blob === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+        console.log("PGN Export (Console fall-back):\n", pgn);
+        return;
+    }
+    const blob = new Blob([pgn], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chess_game_${new Date().toISOString().slice(0, 10).replace(/-/g, '_')}.pgn`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function updateNavigationButtons() {
+    const N = gameState.undoStack ? gameState.undoStack.length : 0;
+    const btnFirst = document.querySelector('[data-action="nav-first"]');
+    const btnPrev = document.querySelector('[data-action="nav-prev"]');
+    const btnNext = document.querySelector('[data-action="nav-next"]');
+    const btnLast = document.querySelector('[data-action="nav-last"]');
+    
+    if (N === 0) {
+        if (btnFirst) btnFirst.disabled = true;
+        if (btnPrev) btnPrev.disabled = true;
+        if (btnNext) btnNext.disabled = true;
+        if (btnLast) btnLast.disabled = true;
+        return;
+    }
+    
+    if (gameState.reviewIndex === 0) {
+        if (btnFirst) btnFirst.disabled = true;
+        if (btnPrev) btnPrev.disabled = true;
+        if (btnNext) btnNext.disabled = false;
+        if (btnLast) btnLast.disabled = false;
+    } else if (gameState.reviewIndex === null) {
+        if (btnFirst) btnFirst.disabled = false;
+        if (btnPrev) btnPrev.disabled = false;
+        if (btnNext) btnNext.disabled = true;
+        if (btnLast) btnLast.disabled = true;
+    } else {
+        if (btnFirst) btnFirst.disabled = false;
+        if (btnPrev) btnPrev.disabled = false;
+        if (btnNext) btnNext.disabled = false;
+        if (btnLast) btnLast.disabled = false;
+    }
+}
+
+function handleNavigation(action) {
+    if (gameState.mode !== "ANALYSIS") return;
+    const N = gameState.undoStack ? gameState.undoStack.length : 0;
+    if (N === 0) return;
+    
+    if (action === "nav-first") {
+        gameState.reviewIndex = 0;
+    } else if (action === "nav-prev") {
+        if (gameState.reviewIndex === null) {
+            gameState.reviewIndex = N - 1;
+        } else if (gameState.reviewIndex > 0) {
+            gameState.reviewIndex--;
+        }
+    } else if (action === "nav-next") {
+        if (gameState.reviewIndex !== null) {
+            if (gameState.reviewIndex < N - 1) {
+                gameState.reviewIndex++;
+            } else {
+                gameState.reviewIndex = null;
+            }
+        }
+    } else if (action === "nav-last") {
+        gameState.reviewIndex = null;
+    }
+    
+    updateReviewUI();
+}
+
+function updateReviewUI() {
+    clearSelection();
+    
+    document.querySelectorAll('.square').forEach(sq => {
+        sq.classList.remove('highlightLastMove');
+        sq.classList.remove('checkKing');
+    });
+    
+    const N = gameState.undoStack ? gameState.undoStack.length : 0;
+    
+    if (gameState.reviewIndex === null) {
+        refreshBoardUI();
+        updateKingCheckHighlight();
+        syncTurnIndicator();
+        setStatus(gameState.status || "ACTIVE", gameState.statusMessage || (gameState.currentTurn === "WHITE" ? "White to move" : "Black to move"), gameState.winner || null);
+    } else {
+        const k = gameState.reviewIndex;
+        const snapshot = gameState.undoStack[k];
+        
+        refreshBoardUIFromBoard(snapshot.board);
+        
+        if (k > 0) {
+            const lastMove = gameState.moveHistory[k - 1];
+            if (lastMove) {
+                document.getElementById(lastMove.from)?.classList.add('highlightLastMove');
+                document.getElementById(lastMove.to)?.classList.add('highlightLastMove');
+            }
+        }
+        
+        const reviewState = snapshot.gameState;
+        if (reviewState.status === 'CHECK' || reviewState.status === 'CHECKMATE') {
+            const kingColor = reviewState.currentTurn;
+            const kingPieceName = kingColor === 'WHITE' ? 'WHITE_KING' : 'BLACK_KING';
+            const kingSquare = snapshot.board.flat().find(s => s.piece && s.piece.piece_name === kingPieceName);
+            if (kingSquare) {
+                document.getElementById(kingSquare.id)?.classList.add('checkKing');
+            }
+        }
+        
+        const turnIndicator = document.getElementById("turnIndicator");
+        if (turnIndicator) turnIndicator.textContent = "Review Mode";
+        
+        const stateIndicator = document.getElementById("gameStateIndicator");
+        if (stateIndicator) stateIndicator.textContent = "REVIEW";
+        
+        const statusMessage = document.getElementById("statusMessage");
+        if (statusMessage) {
+            if (k === 0) {
+                statusMessage.textContent = "Starting position";
+            } else {
+                statusMessage.textContent = `Showing move ${k} of ${N}: ${gameState.moveHistory[k - 1].san}`;
+            }
+        }
+        
+        const bannerEl = document.getElementById("gameBanner");
+        if (bannerEl) {
+            bannerEl.dataset.status = "review";
+            if (k === 0) {
+                bannerEl.textContent = "Review Mode: Starting position";
+            } else {
+                bannerEl.textContent = `Review Mode: Move ${k} (${gameState.moveHistory[k - 1].san})`;
+            }
+        }
+    }
+    
+    renderMoveHistory();
+    updateNavigationButtons();
 }
 
 function GlobalEvent() {
     syncTurnIndicator();
+    try {
+        const key = generatePositionKey(globalState, gameState);
+        gameState.positionHistory = [key];
+    } catch (e) {
+        console.error("poskey init failed", e);
+    }
+    updateNavigationButtons();
     const controls = document.getElementById("gameControls");
     if (controls) {
         controls.addEventListener("click", function (event) {
             const action = event.target && event.target.dataset ? event.target.dataset.action : null;
             if (action === "restart") restartGame();
             if (action === "undo") undoMove();
+            if (action === "flip") flipBoard();
+            if (action === "export-pgn") downloadPGN();
+            if (action === "new-game") {
+                if (gameState.onBackToMenu) gameState.onBackToMenu();
+            }
         });
     }
+    const nav = document.getElementById("gameNavigation");
+    if (nav) {
+        nav.addEventListener("click", function (event) {
+            const action = event.target && event.target.dataset ? event.target.dataset.action : null;
+            if (action && action.startsWith("nav-")) {
+                handleNavigation(action);
+            }
+        });
+    }
+    
+    // Global delegation for dynamic mode buttons (FEN, menu back buttons)
+    if (!GlobalEvent._delegatedAdded) {
+        document.body.addEventListener("click", function (event) {
+            const action = event.target && event.target.dataset ? event.target.dataset.action : null;
+            if (action === "load-fen") {
+                const val = document.getElementById("fenInput")?.value;
+                if (val) loadFEN(val);
+            }
+            if (action === "copy-fen") {
+                copyFENToClipboard();
+            }
+            if (action === "back-to-menu") {
+                if (gameState.onBackToMenu) gameState.onBackToMenu();
+            }
+        });
+        GlobalEvent._delegatedAdded = true;
+    }
+
     ROOT_DIV.addEventListener("click", function (event) {
+        if (gameState.mode === "ONLINE" || gameState.reviewIndex !== null) {
+            return;
+        }
         // if clicked on a piece image
         if (event.target.localName === "img") {
             const clickedId = event.target.parentNode.id;
             const square = globalState.flat().find((el) => el.id === clickedId);
             if (!square || !square.piece) return;
+
+            // only allow selecting a piece of the current turn
+            const color = square.piece.piece_name.startsWith("WHITE") ? "WHITE" : "BLACK";
+            if (color !== gameState.currentTurn) return;
 
             // if a piece is already selected and the clicked piece sits on a legal target square,
             // treat this as a capture/move instead of a new selection
