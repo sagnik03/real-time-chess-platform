@@ -1,5 +1,5 @@
 import { initGameRender } from "./Render/main.js";
-import { GlobalEvent, restartGame, clearIntervals, updateClockUI } from "./Events/global.js";
+import { GlobalEvent, restartGame, clearIntervals, updateClockUI, connectSocket, disconnectSocket, updateOnlineUI, socket } from "./Events/global.js";
 import { globalState, gameState } from "./Data/state.js";
 import { toFEN } from "./Helper/fen.js";
 
@@ -183,34 +183,59 @@ function renderLocalSetup() {
     });
 }
 
-// Function to render online placeholder setup
 function renderOnlineSetup() {
     menuScreen.innerHTML = `
-        <div class="menuCard onlineCardMenu">
-            <h1 class="menuTitle">Online Chess</h1>
-            <div class="onlineDetails">
-                <div class="placeholderIcon">🌐</div>
-                <p class="onlinePlaceholderText">Networking Architecture prepared for Socket.io integration</p>
-                
-                <div class="architectureOutline">
-                    <h3>Proposed Architecture</h3>
-                    <ul>
-                        <li>Client emits: <code>joinGame(roomId)</code>, <code>makeMove(moveData)</code>, <code>resign()</code></li>
-                        <li>Server broadcasts: <code>gameStateUpdate</code>, <code>opponentMoved</code>, <code>opponentConnected</code></li>
-                        <li>Heartbeat: latency sync & server-side clock verification</li>
-                    </ul>
-                </div>
-                
-                <div class="onlineForm">
-                    <input type="text" class="onlineInput" placeholder="Enter Room ID" disabled />
-                    <button type="button" class="menuButton" disabled>Connect (Coming Soon)</button>
-                </div>
+        <div class="menuCard">
+            <h1 class="menuTitle">Online Match Setup</h1>
+            <p class="menuSubtitle">Select Time Control (for room creation)</p>
+            <div class="timeControlGrid" id="onlineTimeGrid">
+                <button type="button" class="timeButton" data-time="60">1 Min</button>
+                <button type="button" class="timeButton" data-time="180">3 Min</button>
+                <button type="button" class="timeButton selected" data-time="300">5 Min</button>
+                <button type="button" class="timeButton" data-time="600">10 Min</button>
+                <button type="button" class="timeButton" data-time="1800">30 Min</button>
             </div>
-            <button type="button" class="menuButton secondaryButton" id="btnBackFromOnline" style="margin-top: 20px;">Back to Menu</button>
+            
+            <div class="onlineSetupActions" style="margin-top: 24px; display: flex; flex-direction: column; gap: 16px; width: 100%;">
+                <button type="button" class="menuButton" id="btnCreateRoom">Create Room</button>
+                
+                <div class="dividerLine"><span>OR</span></div>
+                
+                <div class="onlineForm" style="display: flex; gap: 8px; width: 100%;">
+                    <input type="text" id="txtRoomId" class="onlineInput" placeholder="Enter Room ID" style="flex: 1;" />
+                    <button type="button" class="menuButton" id="btnJoinRoom">Join Room</button>
+                </div>
+                
+                <button type="button" class="menuButton secondaryButton" id="btnBackFromOnline" style="margin-top: 8px;">Back to Menu</button>
+            </div>
         </div>
     `;
-    
+
+    let selectedTime = 300;
+    const timeButtons = menuScreen.querySelectorAll("#onlineTimeGrid .timeButton");
+
+    timeButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+            timeButtons.forEach(b => b.classList.remove("selected"));
+            btn.classList.add("selected");
+            selectedTime = parseInt(btn.dataset.time, 10);
+        });
+    });
+
     document.getElementById("btnBackFromOnline")?.addEventListener("click", renderMenuScreen);
+
+    document.getElementById("btnCreateRoom")?.addEventListener("click", () => {
+        bootGame("ONLINE", { action: "create", timeControl: selectedTime });
+    });
+
+    document.getElementById("btnJoinRoom")?.addEventListener("click", () => {
+        const roomIdVal = document.getElementById("txtRoomId")?.value.trim().toUpperCase();
+        if (!roomIdVal) {
+            alert("Please enter a Room ID");
+            return;
+        }
+        bootGame("ONLINE", { action: "join", roomId: roomIdVal });
+    });
 }
 
 // Boot the game in a specific mode
@@ -264,30 +289,25 @@ export function bootGame(mode, options = {}) {
         updateClockUI();
     }
     else if (mode === "ONLINE") {
-        onlineCard.innerHTML = `
-            <div class="menuCard onlineCardMenu" style="box-shadow: none; background: transparent; padding: 0; margin: 0; width: 100%;">
-                <h1 class="menuTitle">Online Chess</h1>
-                <div class="onlineDetails">
-                    <div class="placeholderIcon">🌐</div>
-                    <p class="onlinePlaceholderText">Networking Architecture prepared for Socket.io integration</p>
-                    
-                    <div class="architectureOutline">
-                        <h3>Proposed Architecture</h3>
-                        <ul>
-                            <li>Client emits: <code>joinGame(roomId)</code>, <code>makeMove(moveData)</code>, <code>resign()</code></li>
-                            <li>Server broadcasts: <code>gameStateUpdate</code>, <code>opponentMoved</code>, <code>opponentConnected</code></li>
-                            <li>Heartbeat: latency sync & server-side clock verification</li>
-                        </ul>
-                    </div>
-                    
-                    <div class="onlineForm">
-                        <input type="text" class="onlineInput" placeholder="Enter Room ID" disabled />
-                        <button type="button" class="menuButton" disabled>Connect (Coming Soon)</button>
-                    </div>
-                </div>
-                <button type="button" class="menuButton secondaryButton" data-action="back-to-menu" style="margin-top: 20px; width: 100%;">Back to Menu</button>
-            </div>
-        `;
+        clocksCard.classList.remove("hidden");
+        gameBanner.classList.remove("hidden");
+        statusPanel.classList.remove("hidden");
+
+        connectSocket();
+        
+        if (options.action === "create") {
+            const timeControl = options.timeControl || 300;
+            if (socket) {
+                socket.emit('createRoom', { timeControl });
+            }
+        } else if (options.action === "join") {
+            const roomId = options.roomId;
+            if (socket) {
+                socket.emit('joinRoom', { roomId });
+            }
+        }
+        
+        updateOnlineUI();
         onlineCard.classList.remove("hidden");
     }
 

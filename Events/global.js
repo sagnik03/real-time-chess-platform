@@ -73,6 +73,23 @@ export function afterMoveCompletion() {
         }
     }
     
+    if (gameState.mode === "ONLINE" && gameState.moveHistory.length > 0) {
+        const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
+        const lastMoveColor = lastMove.piece.startsWith("WHITE") ? "WHITE" : "BLACK";
+        if (lastMoveColor === gameState.playerColor && !lastMove.opponentSync) {
+            if (socket) {
+                socket.emit('makeMove', {
+                    roomId: gameState.roomId,
+                    from: lastMove.from,
+                    to: lastMove.to,
+                    promotion: lastMove.promotedTo ? lastMove.promotedTo.split('_')[1] : null,
+                    san: lastMove.san,
+                    clocks: gameState.clocks
+                });
+            }
+        }
+    }
+
     if (!gameState.gameOver) {
         startClock();
         if (gameState.mode === "LOCAL") {
@@ -370,7 +387,7 @@ function handlePieceSelection(piece) {
     });
 }
 
-function handleMoveTo(id) {
+function handleMoveTo(id, promotionChoice = null) {
     if (!moveState) return;
     const isPawnMove = moveState.piece_name.endsWith('PAWN');
     // ensure target is a highlighted legal move
@@ -492,16 +509,47 @@ function handleMoveTo(id) {
         const reachedLast = (isWhite && rank === '8') || (!isWhite && rank === '1');
         if (reachedLast) {
             clearSelection();
-            // set awaitingPromotion and render chooser
-            gameState.awaitingPromotion = {
-                squareId: landedSquare.id,
-                color: isWhite ? 'WHITE' : 'BLACK',
-                historyRef: historyEntry,
-                boardBefore,
-                gameStateBefore
-            };
-            showPromotionModal(landedSquare.id, isWhite ? 'WHITE' : 'BLACK');
-            promotionTriggered = true;
+            if (promotionChoice) {
+                const color = isWhite ? 'WHITE' : 'BLACK';
+                const pieceShort = promotionChoice; // e.g. "QUEEN"
+                const newPiece = pieces.createPiece(`${color}_${pieceShort}`, landedSquare.id);
+                landedSquare.piece = newPiece;
+                refreshBoardUI();
+                historyEntry.promotedTo = `${color}_${pieceShort}`;
+                try {
+                    const san = toSAN(historyEntry, boardBefore, gameStateBefore);
+                    historyEntry.san = san;
+                    for (let i = gameState.moveHistory.length - 1; i >= 0; i--) {
+                        const m = gameState.moveHistory[i];
+                        if (m.partOf === 'castling') continue;
+                        if (m.from === historyEntry.from && m.to === historyEntry.to) {
+                            gameState.moveHistory[i].promotedTo = `${color}_${pieceShort}`;
+                            gameState.moveHistory[i].san = san;
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    console.error("SAN generation failed on direct promotion", e);
+                }
+                try {
+                    const key = generatePositionKey(globalState, gameState);
+                    gameState.positionHistory = gameState.positionHistory || [];
+                    gameState.positionHistory.push(key);
+                } catch (e) {
+                    console.error("poskey regeneration failed on direct promotion", e);
+                }
+            } else {
+                // set awaitingPromotion and render chooser
+                gameState.awaitingPromotion = {
+                    squareId: landedSquare.id,
+                    color: isWhite ? 'WHITE' : 'BLACK',
+                    historyRef: historyEntry,
+                    boardBefore,
+                    gameStateBefore
+                };
+                showPromotionModal(landedSquare.id, isWhite ? 'WHITE' : 'BLACK');
+                promotionTriggered = true;
+            }
         }
     }
 
@@ -665,6 +713,9 @@ function applyPromotion(squareId, color, pieceShort) {
 
 function restartGame() {
     clearIntervals();
+    if (gameState.mode !== "ONLINE") {
+        disconnectSocket();
+    }
     const modal = document.getElementById("promotionModal");
     if (modal) modal.remove();
     
@@ -1050,15 +1101,25 @@ function GlobalEvent() {
                 copyFENToClipboard();
             }
             if (action === "back-to-menu") {
+                disconnectSocket();
                 if (gameState.onBackToMenu) gameState.onBackToMenu();
+            }
+            if (action === "online-resign") {
+                if (socket && gameState.roomId) {
+                    socket.emit("resign", { roomId: gameState.roomId });
+                }
             }
         });
         GlobalEvent._delegatedAdded = true;
     }
 
     ROOT_DIV.addEventListener("click", function (event) {
-        if (gameState.mode === "ONLINE" || gameState.reviewIndex !== null) {
+        if (gameState.reviewIndex !== null) {
             return;
+        }
+        if (gameState.mode === "ONLINE") {
+            if (gameState.onlineStatus !== "CONNECTED") return;
+            if (gameState.currentTurn !== gameState.playerColor) return;
         }
         // if clicked on a piece image
         if (event.target.localName === "img") {
@@ -1099,4 +1160,188 @@ function GlobalEvent() {
     });
 }
 
-export { GlobalEvent, restartGame, undoMove, renderMoveHistory, syncTurnIndicator, setStatus };
+export let socket = null;
+
+export function disconnectSocket() {
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+    }
+    gameState.roomId = null;
+    gameState.playerColor = null;
+    gameState.onlineStatus = null;
+    const onlineCard = document.getElementById("onlineCard");
+    if (onlineCard) {
+        onlineCard.innerHTML = "";
+        onlineCard.classList.add("hidden");
+    }
+}
+
+export function updateOnlineUI() {
+    const onlineCard = document.getElementById("onlineCard");
+    if (!onlineCard) return;
+
+    if (gameState.onlineStatus === "WAITING") {
+        onlineCard.innerHTML = `
+            <div class="statusCard onlineStatusCard">
+                <div class="statusLabel">Online Room</div>
+                <div class="onlineRoomCode">${gameState.roomId}</div>
+                <p class="onlineInstruction">Share this code with your opponent to start the match.</p>
+                <div class="onlineLoader">
+                    <div class="loaderCircle"></div>
+                    <span>Waiting for opponent...</span>
+                </div>
+                <button type="button" class="menuButton secondaryButton" data-action="back-to-menu" style="margin-top: 16px;">Cancel Room</button>
+            </div>
+        `;
+    } else if (gameState.onlineStatus === "CONNECTED") {
+        const colorLabel = gameState.playerColor === "WHITE" ? "White" : "Black";
+        onlineCard.innerHTML = `
+            <div class="statusCard onlineStatusCard">
+                <div class="statusLabel">Room Code</div>
+                <div class="onlineRoomCode active">${gameState.roomId}</div>
+                <div class="onlineConnectionDetails">
+                    <div class="detailRow">
+                        <span class="detailLabel">Your Color:</span>
+                        <span class="detailValue colorBadge ${gameState.playerColor.toLowerCase()}">${colorLabel}</span>
+                    </div>
+                    <div class="detailRow">
+                        <span class="detailLabel">Status:</span>
+                        <span class="detailValue connected text-green">Connected</span>
+                    </div>
+                </div>
+                <button type="button" class="controlButton resignButton" data-action="online-resign" style="margin-top: 16px; width: 100%;">Resign Game</button>
+            </div>
+        `;
+    } else {
+        onlineCard.innerHTML = `
+            <div class="statusCard onlineStatusCard">
+                <div class="statusLabel">Online Chess</div>
+                <p class="onlineStatusText">Not connected to any room.</p>
+                <button type="button" class="menuButton secondaryButton" data-action="back-to-menu" style="margin-top: 16px; width: 100%;">Back to Menu</button>
+            </div>
+        `;
+    }
+}
+
+export function connectSocket() {
+    if (typeof io === "undefined") {
+        console.warn("Socket.io client is not loaded");
+        return;
+    }
+    if (!socket) {
+        socket = io();
+
+        socket.on('roomCreated', ({ roomId, playerColor, timeControl }) => {
+            gameState.roomId = roomId;
+            gameState.playerColor = playerColor;
+            gameState.timeControl = timeControl;
+            gameState.clocks = { WHITE: timeControl, BLACK: timeControl };
+            gameState.onlineStatus = "WAITING";
+            updateOnlineUI();
+        });
+
+        socket.on('gameStart', ({ roomId, playerColors, timeControl, clocks }) => {
+            gameState.roomId = roomId;
+            gameState.timeControl = timeControl;
+            gameState.clocks = clocks;
+            gameState.onlineStatus = "CONNECTED";
+            gameState.status = "ACTIVE";
+            gameState.gameOver = false;
+            gameState.statusMessage = "Match started!";
+
+            const myId = socket.id;
+            gameState.playerColor = playerColors.WHITE === myId ? "WHITE" : "BLACK";
+
+            if (gameState.playerColor === "BLACK") {
+                const rootDiv = document.getElementById("root");
+                if (rootDiv && !rootDiv.classList.contains("flipped")) {
+                    rootDiv.classList.add("flipped");
+                }
+            } else {
+                const rootDiv = document.getElementById("root");
+                if (rootDiv && rootDiv.classList.contains("flipped")) {
+                    rootDiv.classList.remove("flipped");
+                }
+            }
+
+            try {
+                const key = generatePositionKey(globalState, gameState);
+                gameState.positionHistory = [key];
+            } catch (e) {
+                console.error("poskey init failed", e);
+            }
+
+            updateOnlineUI();
+            startClock();
+            refreshBoardUI();
+            syncTurnIndicator();
+        });
+
+        socket.on('opponentMoved', ({ from, to, promotion, san, clocks }) => {
+            const fromSq = globalState.flat().find(s => s.id === from);
+            if (!fromSq || !fromSq.piece) return;
+
+            moveState = fromSq.piece;
+            fromSq.highlighted = true;
+
+            const targetSq = globalState.flat().find(s => s.id === to);
+            if (targetSq) {
+                targetSq.highlighted = true;
+            }
+
+            handleMoveTo(to, promotion);
+
+            if (gameState.moveHistory.length > 0) {
+                gameState.moveHistory[gameState.moveHistory.length - 1].opponentSync = true;
+            }
+
+            if (clocks) {
+                gameState.clocks = clocks;
+                updateClockUI();
+            }
+        });
+
+        socket.on('gameOver', ({ winner, reason }) => {
+            clearIntervals();
+            gameState.gameOver = true;
+            gameState.winner = winner;
+            const reasonText = reason === "timeout" ? "wins on time" : "wins by resignation";
+            const winnerText = winner === "WHITE" ? "White" : "Black";
+            gameState.status = "GAMEOVER";
+            gameState.statusMessage = `Game Over: ${winnerText} ${reasonText}`;
+            setStatus("GAMEOVER", gameState.statusMessage, winner);
+
+            const bannerEl = document.getElementById("gameBanner");
+            if (bannerEl) {
+                bannerEl.dataset.status = "gameover";
+                bannerEl.textContent = gameState.statusMessage;
+            }
+        });
+
+        socket.on('opponentDisconnected', ({ winner }) => {
+            clearIntervals();
+            gameState.gameOver = true;
+            gameState.winner = winner;
+            gameState.status = "GAMEOVER";
+            gameState.statusMessage = `Game Over: Opponent disconnected. ${winner === "WHITE" ? "White" : "Black"} wins.`;
+            setStatus("GAMEOVER", gameState.statusMessage, winner);
+
+            const bannerEl = document.getElementById("gameBanner");
+            if (bannerEl) {
+                bannerEl.dataset.status = "gameover";
+                bannerEl.textContent = gameState.statusMessage;
+            }
+            gameState.onlineStatus = "DISCONNECTED";
+            updateOnlineUI();
+        });
+
+        socket.on('errorMsg', (msg) => {
+            alert("Matchmaking Error: " + msg);
+            disconnectSocket();
+            if (gameState.onBackToMenu) gameState.onBackToMenu();
+        });
+    }
+}
+
+export { GlobalEvent, restartGame, undoMove, renderMoveHistory, syncTurnIndicator, setStatus, handleMoveTo };

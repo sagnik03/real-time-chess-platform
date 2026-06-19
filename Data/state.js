@@ -18,6 +18,9 @@ const initialGameState = {
     undoStack: [],
     reviewIndex: null,
     mode: "ANALYSIS",
+    roomId: null,
+    playerColor: null,
+    onlineStatus: null,
 };
 
 // additional meta state for game logic
