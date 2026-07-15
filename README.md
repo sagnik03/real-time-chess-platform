@@ -15,7 +15,7 @@ The landing menu allows instant selection of Analysis Board, Local Game (with ti
 ![Game Modes Selection](Assets/recordings/game_modes_ux_validation.webp)
 
 ### 3. Responsive Desktop Sidebar Design
-Spacious layout featuring a 760px chessboard, a live turn & game state board, and a scrollable move history table.
+
 ![Responsive Chess Sidebar](Assets/recordings/chess_ui_large_board.webp)
 
 ### 4. Real-Time Online Matchmaking
