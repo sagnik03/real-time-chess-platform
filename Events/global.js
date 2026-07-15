@@ -21,7 +21,8 @@ export function clearIntervals() {
 
 export function startClock() {
     clearIntervals();
-    if (gameState.mode !== "LOCAL" || gameState.gameOver) return;
+    if ((gameState.mode !== "LOCAL" && gameState.mode !== "ONLINE") || gameState.gameOver) return;
+    updateClockUI();
     clockIntervalId = setInterval(() => {
         const activeTurn = gameState.currentTurn;
         if (gameState.clocks && gameState.clocks[activeTurn] !== undefined) {
@@ -31,7 +32,12 @@ export function startClock() {
                 clearIntervals();
                 const winner = activeTurn === "WHITE" ? "BLACK" : "WHITE";
                 const winnerText = winner === "WHITE" ? "White" : "Black";
-                setStatus("TIMEOUT", `${winnerText} wins on time`, winner);
+                
+                if (activeTurn === gameState.playerColor && gameState.mode === "ONLINE") {
+                    socket.emit('timeout', { roomId: gameState.roomId, loserColor: activeTurn });
+                } else if (gameState.mode !== "ONLINE") {
+                    setStatus("TIMEOUT", `${winnerText} wins on time`, winner);
+                }
             }
         }
     }, 1000);
@@ -1106,7 +1112,9 @@ function GlobalEvent() {
             }
             if (action === "online-resign") {
                 if (socket && gameState.roomId) {
-                    socket.emit("resign", { roomId: gameState.roomId });
+                    if (confirm("Are you sure you want to resign?")) {
+                        socket.emit("resign", { roomId: gameState.roomId });
+                    }
                 }
             }
         });
