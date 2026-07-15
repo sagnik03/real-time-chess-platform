@@ -3,3 +3,5 @@ node_modules/
 .DS_Store
 dist/
 PROJECT_GUIDE.txt
+scratch/
+Data/data.json
