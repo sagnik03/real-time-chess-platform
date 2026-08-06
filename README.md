@@ -1,5 +1,7 @@
 # 👑 Real-Time Chess Platform
 
+[![Live Demo](https://img.shields.io/badge/Live-Demo-success?style=for-the-badge)](https://real-time-chess-platform.onrender.com)
+
 A premium, production-ready browser-based Chess application featuring robust real-time multiplayer, game history review, multiple gameplay modes, and a strict compliance engine enforcing complete FIDE chess rules. Built from the ground up using **Vanilla JS (ES Modules)**, **Express**, and **Socket.io**.
 
 ---
