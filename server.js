@@ -16,8 +16,18 @@ const io = new Server(server, {
     }
 });
 
+// Health check route for cloud deployment platform monitors
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+
 // Serve static chess game files
 app.use(express.static(__dirname));
+
+// Fallback for SPA/routing to serve index.html for unmatched routes
+app.use((req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 const rooms = {}; // In-memory database of active chess rooms
 
@@ -139,6 +149,20 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 8000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+const HOST = '0.0.0.0';
+
+server.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
 });
+
+// Graceful shutdown handling for cloud platforms (Render/Railway)
+const gracefulShutdown = (signal) => {
+    console.log(`${signal} signal received: closing HTTP server`);
+    server.close(() => {
+        console.log('HTTP server closed cleanly');
+        process.exit(0);
+    });
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
