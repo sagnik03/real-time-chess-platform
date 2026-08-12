@@ -860,10 +860,10 @@ function renderMoveHistory() {
         }
     }
     
-    // Auto scroll to active move
+    // Auto scroll to active move within container only (prevents viewport jump on mobile)
     const activeEl = historyList.querySelector('.active-move');
-    if (activeEl && typeof activeEl.scrollIntoView === 'function') {
-        activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (activeEl) {
+        historyList.scrollTop = activeEl.offsetTop - historyList.offsetTop;
     } else {
         historyList.scrollTop = historyList.scrollHeight;
     }
@@ -1135,16 +1135,16 @@ function GlobalEvent() {
             const square = globalState.flat().find((el) => el.id === clickedId);
             if (!square || !square.piece) return;
 
-            // only allow selecting a piece of the current turn
-            const color = square.piece.piece_name.startsWith("WHITE") ? "WHITE" : "BLACK";
-            if (color !== gameState.currentTurn) return;
-
             // if a piece is already selected and the clicked piece sits on a legal target square,
             // treat this as a capture/move instead of a new selection
             if (moveState && square.highlighted) {
                 handleMoveTo(clickedId);
                 return;
             }
+
+            // only allow selecting a piece of the current turn
+            const color = square.piece.piece_name.startsWith("WHITE") ? "WHITE" : "BLACK";
+            if (color !== gameState.currentTurn) return;
 
             handlePieceSelection(square.piece);
             return;
